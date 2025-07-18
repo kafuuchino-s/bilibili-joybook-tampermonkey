@@ -24,15 +24,24 @@ export default async () => {
 
 	GM_cookie.set(qualityCookie);
 
-	// 处理 video 画质
+	// 处理 video 画质，通过劫持 __playinfo__ 强制修改画质
+	let playinfoCache: any = null;
 	Object.defineProperty(unsafeWindow, "__playinfo__", {
 		configurable: true,
-		set() {
-			// const quality = (value.result || value.data)?.accept_quality[0] as string;
-			// if (quality) setQuality(quality);
+		set(value) {
+			console.log("[Joybook] Original __playinfo__ set:", value);
+			// 优先使用B站返回的真实数据作为基础，避免破坏其他功能
+			const info = value?.data ?? {};
+			// 强行注入最高画质信息
+			info.quality = 120;
+			info.accept_quality = [120, 116, 80, 64, 32, 16];
+			info.accept_description = ["4K", "1080P60", "1080P", "720P", "480P", "360P"];
+			playinfoCache = { ...value, data: info };
+			console.log("[Joybook] Modified __playinfo__ cached:", playinfoCache);
 		},
 		get() {
-			// return "120";
+			console.log("[Joybook] __playinfo__ get:", playinfoCache);
+			return playinfoCache;
 		},
 	});
 };
