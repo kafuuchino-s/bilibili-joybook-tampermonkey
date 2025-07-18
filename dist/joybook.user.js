@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-joybook
 // @namespace    https://github.com/PC6live/bilibili-joybook-tampermonkey
-// @version      0.0.14
+// @version      0.0.15
 // @author       PC6live
 // @description  共享大会员
 // @license      MIT
@@ -13,10 +13,8 @@
 // @grant        GM_addStyle
 // @grant        GM_cookie
 // @grant        GM_deleteValue
-// @grant        GM_getTab
 // @grant        GM_getValue
 // @grant        GM_listValues
-// @grant        GM_saveTab
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
@@ -29,12 +27,11 @@
 (function () {
   'use strict';
 
+  var _GM_addStyle = /* @__PURE__ */ (() => typeof GM_addStyle != "undefined" ? GM_addStyle : void 0)();
   var _GM_cookie = /* @__PURE__ */ (() => typeof GM_cookie != "undefined" ? GM_cookie : void 0)();
   var _GM_deleteValue = /* @__PURE__ */ (() => typeof GM_deleteValue != "undefined" ? GM_deleteValue : void 0)();
-  var _GM_getTab = /* @__PURE__ */ (() => typeof GM_getTab != "undefined" ? GM_getTab : void 0)();
   var _GM_getValue = /* @__PURE__ */ (() => typeof GM_getValue != "undefined" ? GM_getValue : void 0)();
   var _GM_listValues = /* @__PURE__ */ (() => typeof GM_listValues != "undefined" ? GM_listValues : void 0)();
-  var _GM_saveTab = /* @__PURE__ */ (() => typeof GM_saveTab != "undefined" ? GM_saveTab : void 0)();
   var _GM_setValue = /* @__PURE__ */ (() => typeof GM_setValue != "undefined" ? GM_setValue : void 0)();
   var _GM_xmlhttpRequest = /* @__PURE__ */ (() => typeof GM_xmlhttpRequest != "undefined" ? GM_xmlhttpRequest : void 0)();
   var _unsafeWindow = /* @__PURE__ */ (() => typeof unsafeWindow != "undefined" ? unsafeWindow : void 0)();
@@ -151,6 +148,96 @@
       handleEvent();
     });
   };
+  function parseCookieString(cookieStr) {
+    var _a;
+    const cookies = [];
+    const items = cookieStr.split(";");
+    for (const item of items) {
+      const parts = item.split("=");
+      const name = (_a = parts.shift()) == null ? void 0 : _a.trim();
+      const value = parts.join("=").trim();
+      if (name && value) {
+        cookies.push({
+          name,
+          value,
+          domain: ".bilibili.com",
+          path: "/"
+        });
+      }
+    }
+    return cookies;
+  }
+  function createCookieInjectorUI() {
+    const { vipCookie } = store.getAll();
+    if (vipCookie) {
+      return;
+    }
+    const button = document.createElement("button");
+    button.textContent = "设置大会员Cookie";
+    button.id = "joybook-cookie-setter";
+    document.body.appendChild(button);
+    const container2 = document.createElement("div");
+    container2.id = "joybook-cookie-container";
+    container2.innerHTML = `
+        <textarea placeholder="请在此处粘贴B站大会员的Cookie字符串"></textarea>
+        <button id="joybook-save-cookie">保存</button>
+        <button id="joybook-cancel-cookie">取消</button>
+    `;
+    document.body.appendChild(container2);
+    _GM_addStyle(`
+        #joybook-cookie-setter {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 9999;
+            padding: 10px;
+            background-color: #fb7299;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #joybook-cookie-container {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10000;
+            padding: 20px;
+            background-color: white;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            flex-direction: column;
+            gap: 10px;
+        }
+        #joybook-cookie-container textarea {
+            width: 400px;
+            height: 150px;
+            font-size: 14px;
+        }
+    `);
+    button.addEventListener("click", () => {
+      container2.style.display = "flex";
+    });
+    const saveButton = document.getElementById("joybook-save-cookie");
+    const cancelButton = document.getElementById("joybook-cancel-cookie");
+    const textarea = container2.querySelector("textarea");
+    saveButton == null ? void 0 : saveButton.addEventListener("click", () => {
+      if (textarea == null ? void 0 : textarea.value) {
+        const vipCookie2 = parseCookieString(textarea.value);
+        store.set("vipCookie", vipCookie2);
+        alert("大会员Cookie已保存！页面将刷新以应用。");
+        window.location.reload();
+      } else {
+        alert("输入框不能为空！");
+      }
+    });
+    cancelButton == null ? void 0 : cancelButton.addEventListener("click", () => {
+      container2.style.display = "none";
+    });
+  }
   const getUserType = async () => {
     const resp = await fetch(USER_INFO_URL, {
       method: "get",
@@ -174,6 +261,12 @@
     window.location.reload();
   }
   const __vite_glob_0_1 = async () => {
+    createCookieInjectorUI();
+    const { vipCookie } = store.getAll();
+    if (vipCookie) {
+      console.log("[Joybook] 已存在VIP Cookie，跳过自动登录抓取。");
+      return;
+    }
     const { isLogin, vipStatus } = await getUserType();
     if (!isLogin || cookiesReady()) return;
     const user = vipStatus ? "vipCookie" : "userCookie";
@@ -615,11 +708,21 @@
       qualityCookie.value = "120";
     }
     _GM_cookie.set(qualityCookie);
+    let playinfoCache = null;
     Object.defineProperty(_unsafeWindow, "__playinfo__", {
       configurable: true,
-      set() {
+      set(value) {
+        console.log("[Joybook] Original __playinfo__ set:", value);
+        const info = (value == null ? void 0 : value.data) ?? {};
+        info.quality = 120;
+        info.accept_quality = [120, 116, 80, 64, 32, 16];
+        info.accept_description = ["4K", "1080P60", "1080P", "720P", "480P", "360P"];
+        playinfoCache = { ...value, data: info };
+        console.log("[Joybook] Modified __playinfo__ cached:", playinfoCache);
       },
       get() {
+        console.log("[Joybook] __playinfo__ get:", playinfoCache);
+        return playinfoCache;
       }
     });
   };
@@ -630,32 +733,13 @@
       (_a = tips == null ? void 0 : tips.parentElement) == null ? void 0 : _a.removeChild(tips);
     });
   };
-  const __vite_glob_0_5 = () => {
-    const { vipCookie, userCookie } = store.getAll();
-    if (!vipCookie || !userCookie) return;
-    if (window.location.pathname.includes("bangumi")) {
-      _GM_getTab(async (tab) => {
-        if (tab.dirty) {
-          await cookie.set(userCookie);
-          tab.dirty = false;
-          _GM_saveTab(tab);
-        } else {
-          await cookie.set(vipCookie);
-          tab.dirty = true;
-          _GM_saveTab(tab);
-          window.location.reload();
-        }
-      });
-    }
-  };
   async function main() {
     const components = /* @__PURE__ */ Object.assign({
       "./components/avatar.ts": __vite_glob_0_0,
       "./components/initialize.ts": __vite_glob_0_1,
       "./components/listenerAjax.ts": __vite_glob_0_2,
       "./components/quality.ts": __vite_glob_0_3,
-      "./components/removeTips.ts": __vite_glob_0_4,
-      "./components/unlockVideo.ts": __vite_glob_0_5
+      "./components/removeTips.ts": __vite_glob_0_4
     });
     for (const script of Object.values(components)) {
       script();
